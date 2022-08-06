@@ -6205,34 +6205,39 @@ public final class Settings {
         public static final String UDFPS_ICON = "udfps_icon";
 
         /**
-         * Enable and disable Artwork on background media notification
+         * Whether or not artwork should be shown as media notification background.
+         * Default 0.
          * @hide
          */
-        public static final String ARTWORK_MEDIA_BACKGROUND = "artwork_media_background";
+        public static final String MEDIA_ARTWORK_ENABLED = "media_artwork_enabled";
 
         /**
-         * Whether to enable artwork blur
+         * force expand qs media player.
+         * Default 0.
          * @hide
          */
-        public static final String ARTWORK_MEDIA_BACKGROUND_ENABLE_BLUR = "artwork_media_background_enable_blur";
+        public static final String MEDIA_ARTWORK_FORCE_EXPAND = "media_artwork_force_expand";
 
         /**
-         * Adjust blur radius for background media
+         * Whether or not to enable artwork blur.
+         * Default 0.
          * @hide
          */
-        public static final String ARTWORK_MEDIA_BACKGROUND_BLUR_RADIUS = "artwork_media_background_blur_radius";
+        public static final String MEDIA_ARTWORK_BLUR_ENABLED = "media_artwork_blur_enabled";
 
         /**
-         * Adjust alpha for background media
+         * Blur radius of artwork.
+         * Default 1.0 .
          * @hide
          */
-        public static final String ARTWORK_MEDIA_BACKGROUND_ALPHA = "artwork_media_background_alpha";
+        public static final String MEDIA_ARTWORK_BLUR_RADIUS = "media_artwork_blur_radius";
 
         /**
-         * force expand qs media player
+         * Fade filter level of artwork.
+         * Default 30.
          * @hide
          */
-        public static final String ARTWORK_MEDIA_FORCE_EXPAND = "artwork_media_force_expand";
+        public static final String MEDIA_ARTWORK_FADE_PERCENT = "media_artwork_fade_percent";
 
         /**
          * @hide
@@ -6411,20 +6416,6 @@ public final class Settings {
         public static final String QS_EDIT_TOGGLE = "qs_edit_toggle";
 
         /**
-         * reTicker Status
-         * @hide
-         */
-        @Readable
-        public static final String RETICKER_STATUS = "reticker_status";
-
-        /**
-         * reTicker Colored
-         * @hide
-         */
-        @Readable
-        public static final String RETICKER_COLORED = "reticker_colored";
-
-        /**
         * Show ambient icons on lockscreen
         * @hide
         */
@@ -6532,6 +6523,24 @@ public final class Settings {
          * @hide
          */
         public static final String ENABLE_TASKBAR = "enable_taskbar";
+
+        /**
+         * reTicker Status
+         * @hide
+         */
+        public static final String RETICKER_STATUS = "reticker_status";
+
+        /**
+         * reTicker Colored
+         * @hide
+         */
+        public static final String RETICKER_COLORED = "reticker_colored";
+
+        /**
+         * Only enable reTicker in landscape mode
+         * @hide
+         */
+        public static final String RETICKER_LANDSCAPE_ONLY = "reticker_landscape_only";
 
         /**
          * IMPORTANT: If you add a new public settings you also have to add it to
@@ -11969,6 +11978,12 @@ public final class Settings {
          * @hide
          */
         public static final String GESTURE_NAVBAR_LENGTH_MODE = "gesture_navbar_length_mode";
+
+        /**
+         * Whether to show Wi-Fi standard icon
+         * @hide
+         */
+        public static final String SHOW_WIFI_STANDARD_ICON = "show_wifi_standard_icon";
 
         /**
          * @hide

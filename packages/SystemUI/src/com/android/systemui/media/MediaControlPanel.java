@@ -26,13 +26,17 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
+import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.Outline;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
+import android.graphics.RenderEffect;
+import android.graphics.Shader;
 import android.media.session.MediaController;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -54,6 +58,7 @@ import androidx.annotation.UiThread;
 import androidx.constraintlayout.widget.ConstraintSet;
 
 import com.android.internal.jank.InteractionJankMonitor;
+import com.android.internal.graphics.ColorUtils;
 import com.android.settingslib.Utils;
 import com.android.settingslib.widget.AdaptiveIcon;
 import com.android.systemui.R;
@@ -136,11 +141,7 @@ public class MediaControlPanel {
     private SystemClock mSystemClock;
     private final MediaArtworkProcessor mMediaArtworkProcessor;
     private int mAlbumArtRadius;
-    private boolean mBackgroundArtwork;
-    private boolean mForceExpanded;
-    private boolean mBackgroundBlur;
-    private float mBlurRadius;
-    private int mBackgroundAlpha;
+    private ArtworkSettings mArtworkSettings = new ArtworkSettings();
 
     /**
      * Initialize a new control panel
@@ -235,13 +236,8 @@ public class MediaControlPanel {
         mSeekBarViewModel.setListening(listening);
     }
 
-    public void updateBgArtworkParams(boolean backgroundArtwork, boolean backgroundBlur,
-            float blurRadius, int backgroundAlpha, boolean forceExpand) {
-        mBackgroundArtwork = backgroundArtwork;
-        mBackgroundBlur = backgroundBlur;
-        mBlurRadius = blurRadius;
-        mBackgroundAlpha = backgroundAlpha;
-        mForceExpanded = forceExpand;
+    protected void updateArtworkSettings(ArtworkSettings artworkSettings) {
+        mArtworkSettings = artworkSettings;
     }
 
     /**
@@ -368,17 +364,25 @@ public class MediaControlPanel {
         ImageView albumView = mPlayerViewHolder.getAlbumView();
         boolean hasArtwork = data.getArtwork() != null;
         if (hasArtwork) {
-            if (mBackgroundArtwork) {
-                BitmapDrawable drawable = (BitmapDrawable) data.getArtwork().loadDrawable(mContext);
-                if (mBackgroundBlur) {
-                    drawable = new BitmapDrawable(mContext.getResources(),
-                        mMediaArtworkProcessor.processArtwork(mContext,
-                            drawable.getBitmap(), mBlurRadius, false));
+            if (mArtworkSettings.getEnabled()) {
+                final BitmapDrawable drawable = (BitmapDrawable) data.getArtwork().loadDrawable(mContext);
+                final ImageView backgroundImage = mPlayerViewHolder.getPlayer().findViewById(R.id.bg_album_art);
+                if (mArtworkSettings.getBlurEnabled()) {
+                    backgroundImage.setRenderEffect(
+                        RenderEffect.createBlurEffect(
+                            mArtworkSettings.getBlurRadius(),
+                            mArtworkSettings.getBlurRadius(),
+                            Shader.TileMode.MIRROR
+                        )
+                    );
                 }
-                final ImageView backgroundImage = mPlayerViewHolder.getPlayer()
-                    .findViewById(R.id.bg_album_art);
+                final int fadeFilter = ColorUtils.blendARGB(
+                    Color.TRANSPARENT,
+                    Color.BLACK,
+                    mArtworkSettings.getFadeLevel() / 100f
+                );
+                backgroundImage.setColorFilter(fadeFilter, PorterDuff.Mode.SRC_ATOP);
                 backgroundImage.setImageDrawable(drawable);
-                backgroundImage.setImageAlpha(mBackgroundAlpha);
                 backgroundImage.setClipToOutline(true);
                 backgroundImage.setOutlineProvider(new ViewOutlineProvider() {
                     @Override
@@ -404,20 +408,20 @@ public class MediaControlPanel {
             albumView.setImageDrawable(deviceIcon);
         }
 
-        boolean useBgAlbumArt = hasArtwork && mBackgroundArtwork;
+        boolean useBgAlbumArt = hasArtwork && mArtworkSettings.getEnabled();
         setVisibleAndAlpha(collapsedSet, R.id.bg_album_art, useBgAlbumArt);
         setVisibleAndAlpha(expandedSet, R.id.bg_album_art, useBgAlbumArt);
         setVisibleAndAlpha(collapsedSet, R.id.album_art, !useBgAlbumArt);
         setVisibleAndAlpha(expandedSet, R.id.album_art, !useBgAlbumArt);
 
-        // App icon
+        // Always show the app icon when using album background
         ImageView appIconView = mPlayerViewHolder.getAppIcon();
-        if (!mBackgroundArtwork) {
             setVisibleAndAlpha(collapsedSet, R.id.icon, true);
+            setVisibleAndAlpha(expandedSet, R.id.icon, useBgAlbumArt);
             appIconView.clearColorFilter();
             if (data.getAppIcon() != null && !data.getResumption()) {
                 appIconView.setImageIcon(data.getAppIcon());
-                int color = mContext.getColor(android.R.color.system_accent2_900);
+                int color = mContext.getColor(android.R.color.system_neutral1_0);
                 appIconView.setColorFilter(color);
             } else {
                 appIconView.setColorFilter(getGrayscaleFilter());
@@ -427,10 +431,9 @@ public class MediaControlPanel {
                     appIconView.setImageDrawable(icon);
                 } catch (PackageManager.NameNotFoundException e) {
                     Log.w(TAG, "Cannot find icon for package " + data.getPackageName(), e);
-                    appIconView.setImageResource(R.drawable.ic_music_note);
+                    appIconView.setImageResource(R.drawable.ic_media_player);
                 }
             }
-        }
 
         // Song name
         TextView titleText = mPlayerViewHolder.getTitleText();

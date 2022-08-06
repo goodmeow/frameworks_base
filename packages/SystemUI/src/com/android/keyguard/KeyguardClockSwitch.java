@@ -7,6 +7,7 @@ import android.animation.ObjectAnimator;
 import android.content.Context;
 import android.graphics.Paint;
 import android.graphics.Paint.Style;
+import android.graphics.Typeface;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.View;
@@ -109,6 +110,23 @@ public class KeyguardClockSwitch extends RelativeLayout {
                 R.dimen.keyguard_smartspace_top_offset);
     }
 
+    public void onThemeChanged() {
+        String font = mContext.getString(com.android.internal.R.string.config_headlineFontFamily);
+        if (font.equalsIgnoreCase("nothingdot57")
+             || font.equalsIgnoreCase("aclonica-light")
+             || font.equalsIgnoreCase("bariol-light")
+             || font.equalsIgnoreCase("comfortaa-regular")
+             || font.equalsIgnoreCase("coolstory-light")
+             || font.equalsIgnoreCase("jtleonor-bold")
+             || font.equalsIgnoreCase("linotte-bold")
+             || font.equalsIgnoreCase("nokiapure-regular")) {
+        Typeface fallback = Typeface.create("google-sans", Typeface.NORMAL);
+
+        mClockView.setTypeface(fallback);
+        mLargeClockView.setTypeface(fallback);
+        }
+    }
+
     /**
      * Returns if this view is presenting a custom clock, or the default implementation.
      */
@@ -127,6 +145,7 @@ public class KeyguardClockSwitch extends RelativeLayout {
         mStatusArea = findViewById(R.id.keyguard_status_area);
 
         onDensityOrFontScaleChanged();
+        onThemeChanged();
     }
 
     void setClockPlugin(ClockPlugin plugin, int statusBarState) {

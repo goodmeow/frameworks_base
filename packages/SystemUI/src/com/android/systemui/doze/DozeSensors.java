@@ -203,7 +203,8 @@ public class DozeSensors {
                         true /* configured */,
                         DozeLog.REASON_SENSOR_DOUBLE_TAP,
                         dozeParameters.doubleTapReportsTouchCoordinates(),
-                        true /* touchscreen */),
+                        true /* touchscreen */,
+                        !dozeParameters.doubleTapNeedsProximityCheck() /* performsProxCheck */),
                 new TriggerSensor(
                         findSensors(config.tapSensorTypeMapping()),
                         Settings.Secure.DOZE_TAP_SCREEN_GESTURE,
@@ -224,7 +225,8 @@ public class DozeSensors {
                         true /* reports touch coordinates */,
                         true /* touchscreen */,
                         false /* ignoresSetting */,
-                        dozeParameters.longPressUsesProx() /* requiresProx */),
+                        dozeParameters.longPressUsesProx() /* requiresProx */,
+                        !dozeParameters.longPressNeedsProximityCheck() /* performsProxCheck */),
                 new TriggerSensor(
                         findSensor(config.udfpsLongPressSensorType()),
                         "doze_pulse_on_auth",
@@ -234,7 +236,8 @@ public class DozeSensors {
                         true /* reports touch coordinates */,
                         true /* touchscreen */,
                         false /* ignoresSetting */,
-                        dozeParameters.longPressUsesProx()),
+                        dozeParameters.longPressUsesProx(),
+                        !dozeParameters.longPressNeedsProximityCheck() /* performsProxCheck */),
                 new PluginSensor(
                         new SensorManagerPlugin.Sensor(TYPE_WAKE_DISPLAY),
                         Settings.Secure.DOZE_WAKE_DISPLAY_GESTURE,
@@ -503,6 +506,7 @@ public class DozeSensors {
         private final boolean mSettingDefault;
         private final boolean mRequiresTouchscreen;
         private final boolean mRequiresProx;
+        private final boolean mPerformsProxCheck;
 
         protected boolean mRequested;
         protected boolean mRegistered;
@@ -519,6 +523,26 @@ public class DozeSensors {
                 boolean requiresTouchscreen
         ) {
             this(
+                sensor,
+                setting,
+                configured,
+                pulseReason,
+                reportsTouchCoordinates,
+                requiresTouchscreen,
+                true
+            );
+        }
+
+        TriggerSensor(
+                Sensor sensor,
+                String setting,
+                boolean configured,
+                int pulseReason,
+                boolean reportsTouchCoordinates,
+                boolean requiresTouchscreen,
+                boolean performsProxCheck
+        ) {
+            this(
                     sensor,
                     setting,
                     true /* settingDef */,
@@ -527,7 +551,8 @@ public class DozeSensors {
                     reportsTouchCoordinates,
                     requiresTouchscreen,
                     false /* ignoresSetting */,
-                    false /* requiresProx */
+                    false /* requiresProx */,
+                    performsProxCheck
             );
         }
 
@@ -543,6 +568,32 @@ public class DozeSensors {
                 boolean requiresProx
         ) {
             this(
+                    sensor,
+                    setting,
+                    settingDef,
+                    configured,
+                    pulseReason,
+                    reportsTouchCoordinates,
+                    requiresTouchscreen,
+                    ignoresSetting,
+                    requiresProx,
+                    true
+            );
+        }
+
+        TriggerSensor(
+                Sensor sensor,
+                String setting,
+                boolean settingDef,
+                boolean configured,
+                int pulseReason,
+                boolean reportsTouchCoordinates,
+                boolean requiresTouchscreen,
+                boolean ignoresSetting,
+                boolean requiresProx,
+                boolean performsProxCheck
+        ) {
+            this(
                     new Sensor[]{ sensor },
                     setting,
                     settingDef,
@@ -552,6 +603,7 @@ public class DozeSensors {
                     requiresTouchscreen,
                     ignoresSetting,
                     requiresProx,
+                    performsProxCheck,
                     DevicePostureController.DEVICE_POSTURE_UNKNOWN
             );
         }
@@ -568,6 +620,34 @@ public class DozeSensors {
                 boolean requiresProx,
                 @DevicePostureController.DevicePostureInt int posture
         ) {
+            this(
+                    sensors,
+                    setting,
+                    settingDef,
+                    configured,
+                    pulseReason,
+                    reportsTouchCoordinates,
+                    requiresTouchscreen,
+                    ignoresSetting,
+                    requiresProx,
+                    true,
+                    posture
+            );
+        }
+
+        TriggerSensor(
+                @NonNull Sensor[] sensors,
+                String setting,
+                boolean settingDef,
+                boolean configured,
+                int pulseReason,
+                boolean reportsTouchCoordinates,
+                boolean requiresTouchscreen,
+                boolean ignoresSetting,
+                boolean requiresProx,
+                boolean performsProxCheck,
+                @DevicePostureController.DevicePostureInt int posture
+        ) {
             mSensors = sensors;
             mSetting = setting;
             mSettingDefault = settingDef;
@@ -577,6 +657,7 @@ public class DozeSensors {
             mRequiresTouchscreen = requiresTouchscreen;
             mIgnoresSetting = ignoresSetting;
             mRequiresProx = requiresProx;
+            mPerformsProxCheck = performsProxCheck;
             mPosture = posture;
         }
 
@@ -712,11 +793,21 @@ public class DozeSensors {
                     screenX = event.values[0];
                     screenY = event.values[1];
                 }
-                mSensorCallback.onSensorPulse(mPulseReason, screenX, screenY, event.values);
+                mSensorCallback.onSensorPulse(mPulseReason, mPerformsProxCheck,
+                        screenX, screenY, event.values);
                 if (!mRegistered) {
                     updateListening();  // reregister, this sensor only fires once
                 }
             }));
+        }
+
+        /**
+         * If the sensor itself performs proximity checks, to avoid pocket dialing.
+         * Gated sensors don't need to be stopped when the {@link DozeMachine} is
+         * {@link DozeMachine.State#DOZE_AOD_PAUSED}.
+         */
+        public boolean performsProxCheck() {
+            return mPerformsProxCheck;
         }
 
         public void registerSettingsObserver(ContentObserver settingsObserver) {
@@ -813,7 +904,8 @@ public class DozeSensors {
                     return;
                 }
                 if (DEBUG) Log.d(TAG, "onSensorEvent: " + triggerEventToString(event));
-                mSensorCallback.onSensorPulse(mPulseReason, -1, -1, event.getValues());
+                mSensorCallback.onSensorPulse(mPulseReason, true /* sensorPerformsProxCheck */,
+                        -1, -1, event.getValues());
             }));
         }
     }
@@ -858,11 +950,13 @@ public class DozeSensors {
         /**
          * Called when a sensor requests a pulse
          * @param pulseReason Requesting sensor, e.g. {@link DozeLog#REASON_SENSOR_PICKUP}
+         * @param sensorPerformedProxCheck true if the sensor already checked for FAR proximity.
          * @param screenX the location on the screen where the sensor fired or -1
          *                if the sensor doesn't support reporting screen locations.
          * @param screenY the location on the screen where the sensor fired or -1
          * @param rawValues raw values array from the event.
          */
-        void onSensorPulse(int pulseReason, float screenX, float screenY, float[] rawValues);
+        void onSensorPulse(int pulseReason, boolean sensorPerformedProxCheck,
+                float screenX, float screenY, float[] rawValues);
     }
 }

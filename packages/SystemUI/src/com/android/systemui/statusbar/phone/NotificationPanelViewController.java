@@ -53,6 +53,7 @@ import android.app.StatusBarManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -79,6 +80,8 @@ import android.os.UserHandle;
 import android.os.UserManager;
 import android.os.VibrationEffect;
 import android.provider.Settings;
+import android.service.notification.StatusBarNotification;
+import android.text.TextUtils;
 import android.transition.ChangeBounds;
 import android.transition.TransitionManager;
 import android.util.Log;
@@ -125,6 +128,8 @@ import com.android.keyguard.dagger.KeyguardUserSwitcherComponent;
 import com.android.systemui.DejankUtils;
 import com.android.systemui.Dependency;
 import com.android.systemui.R;
+import com.android.systemui.RetickerAnimations;
+import com.android.systemui.ScreenDecorations;
 import com.android.systemui.animation.ActivityLaunchAnimator;
 import com.android.systemui.animation.Interpolators;
 import com.android.systemui.animation.LaunchAnimator;
@@ -135,8 +140,6 @@ import com.android.systemui.classifier.FalsingCollector;
 import com.android.systemui.controls.dagger.ControlsComponent;
 import com.android.systemui.dagger.qualifiers.DisplayId;
 import com.android.systemui.dagger.qualifiers.Main;
-import com.android.systemui.RetickerAnimations;
-import com.android.systemui.ScreenDecorations;
 import com.android.systemui.doze.DozeLog;
 import com.android.systemui.flags.FeatureFlags;
 import com.android.systemui.fragments.FragmentHostManager.FragmentListener;
@@ -198,6 +201,7 @@ import com.android.systemui.statusbar.phone.fragment.CollapsedStatusBarFragment;
 import com.android.systemui.statusbar.phone.panelstate.PanelExpansionStateManager;
 import com.android.systemui.statusbar.phone.panelstate.PanelState;
 import com.android.systemui.statusbar.policy.ConfigurationController;
+import com.android.systemui.statusbar.policy.GameSpaceManager;
 import com.android.systemui.statusbar.policy.KeyguardQsUserSwitchController;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.statusbar.policy.KeyguardUserSwitcherController;
@@ -429,8 +433,6 @@ public class NotificationPanelViewController extends PanelViewController {
     private Runnable mLaunchAnimationEndRunnable;
     private boolean mOnlyAffordanceInThisMotion;
     private ValueAnimator mQsSizeChangeAnimator;
-
-    private String[] mAppExceptions;
 
     private boolean mQsScrimEnabled = true;
     private boolean mQsTouchAboveFalsingThreshold;
@@ -669,13 +671,17 @@ public class NotificationPanelViewController extends PanelViewController {
     private NotificationStackScrollLayout mStackScrollLayout;
     private KeyguardStatusView mKeyguardStatusView;
 
+    private final String[] mAppExceptions;
+
     /*Reticker*/
     private LinearLayout mReTickerComeback;
     private ImageView mReTickerComebackIcon;
     private TextView mReTickerContentTV;
     private NotificationStackScrollLayout mNotificationStackScroller;
+
     private boolean mReTickerStatus;
     private boolean mReTickerColored;
+    private boolean mReTickerLandscapeOnly;
 
     private View.AccessibilityDelegate mAccessibilityDelegate = new View.AccessibilityDelegate() {
         @Override
@@ -901,6 +907,8 @@ public class NotificationPanelViewController extends PanelViewController {
 
         mSettingsObserver = new SettingsObserver(mHandler);
 
+        mAppExceptions = mResources.getStringArray(R.array.app_exceptions);
+
         onFinishInflate();
 
         mUseCombinedQSHeaders = featureFlags.useCombinedQSHeaders();
@@ -952,6 +960,7 @@ public class NotificationPanelViewController extends PanelViewController {
         mReTickerComebackIcon = mView.findViewById(R.id.ticker_comeback_icon);
         mReTickerContentTV = mView.findViewById(R.id.ticker_content);
         mNotificationStackScroller = mView.findViewById(R.id.notification_stack_scroller);
+
         initBottomArea();
 
         mWakeUpCoordinator.setStackScroller(mNotificationStackScrollLayoutController);
@@ -3075,7 +3084,7 @@ public class NotificationPanelViewController extends PanelViewController {
             alpha = 0;
         }
         mNotificationStackScrollLayoutController.setAlpha(alpha);
-        if (mBarState != StatusBarState.KEYGUARD && !isFullyCollapsed() || !isPanelVisibleBecauseOfHeadsUp()) {
+        if (mBarState != StatusBarState.KEYGUARD && !isFullyCollapsed()) {
             mStatusBar.updateDismissAllVisibility(true);
         }
         mStatusBar.getPulseController().setQSShowing(mBarState != StatusBarState.KEYGUARD && !isFullyCollapsed());
@@ -4074,6 +4083,10 @@ public class NotificationPanelViewController extends PanelViewController {
         updateMaxDisplayedNotifications(true);
     }
 
+    private boolean isLandscape() {
+        return mView.getContext().getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+    }
+
     public void setLockscreenDoubleTapToSleep(boolean isDoubleTapEnabled) {
         mIsLockscreenDoubleTapEnabled = isDoubleTapEnabled;
     }
@@ -4344,13 +4357,22 @@ public class NotificationPanelViewController extends PanelViewController {
         mContentResolver.registerContentObserver(
                 Settings.System.getUriFor(Settings.System.RETICKER_STATUS),
                 /* notifyForDescendants */ false,
-                mSettingsChangeObserver
+                mSettingsChangeObserver,
+                UserHandle.USER_ALL
         );
         mContentResolver.registerContentObserver(
                 Settings.System.getUriFor(Settings.System.RETICKER_COLORED),
                 /* notifyForDescendants */ false,
-                mSettingsChangeObserver
+                mSettingsChangeObserver,
+                UserHandle.USER_ALL
         );
+        mContentResolver.registerContentObserver(
+                Settings.System.getUriFor(Settings.System.RETICKER_LANDSCAPE_ONLY),
+                /* notifyForDescendants */ false,
+                mSettingsChangeObserver,
+                UserHandle.USER_ALL
+        );
+        updateReticker();
     }
 
     private void unregisterSettingsChangeListener() {
@@ -4726,12 +4748,30 @@ public class NotificationPanelViewController extends PanelViewController {
         }
 
         @Override
-        public void onChange(boolean selfChange) {
+        public void onChange(boolean selfChange, Uri uri) {
             if (DEBUG) Log.d(TAG, "onSettingsChanged");
 
-            // Can affect multi-user switcher visibility
-            reInflateViews();
+            if (uri.equals(Settings.System.getUriFor(
+                    Settings.System.RETICKER_STATUS))
+                || uri.equals(Settings.System.getUriFor(
+                    Settings.System.RETICKER_COLORED))
+                || uri.equals(Settings.System.getUriFor(
+                    Settings.System.RETICKER_LANDSCAPE_ONLY))) {
+                updateReticker();
+            } else {
+                // Can affect multi-user switcher visibility
+                reInflateViews();
+            }
         }
+    }
+
+    private void updateReticker() {
+        mReTickerStatus = Settings.System.getIntForUser(mView.getContext().getContentResolver(),
+                Settings.System.RETICKER_STATUS, 0, UserHandle.USER_CURRENT) != 0;
+        mReTickerColored = Settings.System.getIntForUser(mView.getContext().getContentResolver(),
+                Settings.System.RETICKER_COLORED, 0, UserHandle.USER_CURRENT) != 0;
+        mReTickerLandscapeOnly = Settings.System.getIntForUser(mView.getContext().getContentResolver(),
+                Settings.System.RETICKER_LANDSCAPE_ONLY, 0, UserHandle.USER_CURRENT) != 0;
     }
 
     private class StatusBarStateListener implements StateListener {
@@ -5171,49 +5211,46 @@ public class NotificationPanelViewController extends PanelViewController {
         alarmManager.cancel(sender);
     }
 
-    /* Descendant reTicker */
+    /* reTicker */
 
     public void reTickerView(boolean visibility) {
-        mReTickerStatus = Settings.System.getIntForUser(mView.getContext().getContentResolver(),
-                Settings.System.RETICKER_STATUS, 0, UserHandle.USER_CURRENT) != 0;
-        if (!mReTickerStatus) return;
+        if (!mReTickerStatus || mReTickerLandscapeOnly && !isLandscape()) return;
         if (visibility && mReTickerComeback.getVisibility() == View.VISIBLE) {
             reTickerDismissal();
         }
-        String reTickerContent = "";
-        boolean debug = true;
+        String reTickerContent;
         if (visibility && getExpandedFraction() != 1) {
             mNotificationStackScroller.setVisibility(GONE);
-            mStatusBar.updateDismissAllVisibility(false);
-            ExpandableNotificationRow row = mHeadsUpManager.getTopEntry().getRow();
-            String pkgname = row.getEntry().getSbn().getPackageName();
+            StatusBarNotification sbn = mHeadsUpManager.getTopEntry().getRow().getEntry().getSbn();
+            Notification notification = sbn.getNotification();
+            String pkgname = sbn.getPackageName();
             Drawable icon = null;
             try {
-                if (pkgname.contains("systemui")) {
-                    icon = mView.getContext().getDrawable(row.getEntry().getSbn().getNotification().icon);
+                if (pkgname.equals("com.android.systemui")) {
+                    icon = mView.getContext().getDrawable(notification.icon);
                 } else {
                     icon = mView.getContext().getPackageManager().getApplicationIcon(pkgname);
                 }
-            } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            } catch (NameNotFoundException e) {
+                return;
             }
-            if (row.getEntry().getSbn().getNotification().extras.getString("android.text") != null) {
-                reTickerContent = row.getEntry().getSbn().getNotification().extras.getString("android.text");
-            }
-            String reTickerAppName = row.getEntry().getSbn().getNotification().extras.getString("android.title");
-            PendingIntent reTickerIntent = row.getEntry().getSbn().getNotification().contentIntent;
+            String content = notification.extras.getString("android.text");
+            if (TextUtils.isEmpty(content)) return;
+            reTickerContent = content;
+            String reTickerAppName = notification.extras.getString("android.title");
+            PendingIntent reTickerIntent = notification.contentIntent;
             String mergedContentText = reTickerAppName + " " + reTickerContent;
             mReTickerComebackIcon.setImageDrawable(icon);
             Drawable dw = mView.getContext().getDrawable(R.drawable.reticker_background);
-            mReTickerColored = Settings.System.getIntForUser(mView.getContext().getContentResolver(),
-                    Settings.System.RETICKER_COLORED, 0, UserHandle.USER_CURRENT) != 0;
             if (mReTickerColored) {
-                int col;
-                col = row.getEntry().getSbn().getNotification().color;
-                mAppExceptions = mView.getContext().getResources().getStringArray(R.array.app_exceptions);
-                //check if we need to override the color
-                for (int i=0; i < mAppExceptions.length; i++) {
-                    if (mAppExceptions[i].contains(pkgname)) {
-                        col = Color.parseColor(mAppExceptions[i+=1]);
+                int col = notification.color;
+                // check if we need to override the color
+                if ((mAppExceptions.length & 1) == 0) {
+                    for (int i = 0; i < mAppExceptions.length; i += 2) {
+                        if (mAppExceptions[i].equals(pkgname)) {
+                            col = Color.parseColor(mAppExceptions[i + 1]);
+                            break;
+                        }
                     }
                 }
                 dw.setTint(col);
@@ -5225,24 +5262,26 @@ public class NotificationPanelViewController extends PanelViewController {
             mReTickerContentTV.setTextAppearance(mView.getContext(), R.style.TextAppearance_Notifications_reTicker);
             mReTickerContentTV.setSelected(true);
             RetickerAnimations.doBounceAnimationIn(mReTickerComeback);
-            mReTickerComeback.setOnClickListener(v -> {
-                try {
-                    if (reTickerIntent != null)
-                        reTickerIntent.send();
-                } catch (PendingIntent.CanceledException e) {
-                }
-                if (reTickerIntent != null) {
+            if (reTickerIntent != null) {
+                mReTickerComeback.setOnClickListener(v -> {
+                    final GameSpaceManager gameSpace = mStatusBar.getGameSpaceManager();
+                    if (gameSpace == null || !gameSpace.isGameActive()) {
+                        try {
+                            reTickerIntent.send();
+                        } catch (PendingIntent.CanceledException e) {
+                        }
+                    }
                     RetickerAnimations.doBounceAnimationOut(mReTickerComeback, mNotificationStackScroller);
                     reTickerViewVisibility();
-                }
-            });
+                });
+            }
         } else {
             reTickerDismissal();
         }
     }
 
     private void reTickerViewVisibility() {
-        if (!mReTickerStatus) {
+        if (!mReTickerStatus || mReTickerLandscapeOnly && !isLandscape()) {
             reTickerDismissal();
             return;
         }

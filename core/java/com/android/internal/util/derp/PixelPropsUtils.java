@@ -51,7 +51,7 @@ public class PixelPropsUtils {
 
     // Codenames for currently supported Pixels by Google
     private static final String[] pixelCodenames = {"oriole", "raven", "redfin", "barbet",
-            "bramble", "sunfish", "coral", "flame", "bonito", "sargo"};
+            "bramble", "sunfish", "coral", "flame"};
 
     private static volatile boolean sIsGms = false;
 
@@ -121,6 +121,10 @@ public class PixelPropsUtils {
             if (DEBUG)
                 Log.d(TAG, "Defining " + key + " prop for: " + packageName);
             setPropValue(key, value);
+        }
+        // Set MODEL to "Pixel 5a"
+        if (sIsGms) {
+            setPropValue("MODEL", "Pixel 5a");
         }
         // Set proper indexing fingerprint
         if (packageName.equals("com.google.android.settings.intelligence")) {

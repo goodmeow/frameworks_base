@@ -1781,6 +1781,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         mSwipeToScreenshot = new SwipeToScreenshotListener(context, new SwipeToScreenshotListener.Callbacks() {
             @Override
             public void onSwipeThreeFinger() {
+                mScreenshotRunnable.setScreenshotType(TAKE_SCREENSHOT_FULLSCREEN);
                 mHandler.post(mScreenshotRunnable);
             }
         });
@@ -3657,7 +3658,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 wakeUpFromPowerKey(event.getDownTime());
             } else if (down && (isWakeKey || keyCode == KeyEvent.KEYCODE_WAKEUP)
                     && isWakeKeyWhenScreenOff(keyCode)) {
-                wakeUpFromWakeKey(event);
+                wakeUpFromWakeKey(event, false);
             }
             return 0;
         }
@@ -3732,7 +3733,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             }
 
             if (isWakeKey) {
-                wakeUpFromWakeKey(event);
+                wakeUpFromWakeKey(event, true);
             }
             return result;
         }
@@ -4106,6 +4107,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         }
 
         if (isWakeKey) {
+            // Check proximity only on wake key
             wakeUpFromWakeKey(event, event.getKeyCode() == KeyEvent.KEYCODE_WAKEUP);
         }
 
@@ -4640,13 +4642,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         }
     }
 
-    private void wakeUpFromWakeKey(KeyEvent event) {
-        wakeUpFromWakeKey(event, false);
-    }
-
-    private void wakeUpFromWakeKey(KeyEvent event, boolean withProximity) {
+    private void wakeUpFromWakeKey(KeyEvent event, boolean withProximityCheck) {
         if (wakeUp(event.getEventTime(), mAllowTheaterModeWakeFromKey,
-                PowerManager.WAKE_REASON_WAKE_KEY, "android.policy:KEY", withProximity)) {
+                PowerManager.WAKE_REASON_WAKE_KEY, "android.policy:KEY", withProximityCheck)) {
             // Start HOME with "reason" extra if sleeping for more than mWakeUpToLastStateTimeout
             if (shouldWakeUpWithHomeIntent() && event.getKeyCode() == KEYCODE_HOME) {
                 startDockOrHome(DEFAULT_DISPLAY, /*fromHomeKey*/ true, /*wakenFromDreams*/ true,
